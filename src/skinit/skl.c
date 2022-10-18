@@ -60,7 +60,7 @@ bool is_skl_module(const void *skl_base, uint32_t skl_size)
     sl_header_t *header = (sl_header_t *)skl_base;
     skl_info_t *info;
 
-    if (skl_size < (8*PAGE_SIZE)) {
+    if (skl_size < (4*PAGE_SIZE)) {
         printk(SLEXEC_INFO"Possible SKL module too small\n");
         return false;
     }

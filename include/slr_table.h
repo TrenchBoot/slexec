@@ -50,6 +50,7 @@
 
 /* DRTM Policy Entry Flags */
 #define SLR_POLICY_FLAG_MEASURED	0x1
+#define SLR_POLICY_IMPLICIT_SIZE	0x2
 
 /* Array Lengths */
 #define TPM_EVENT_INFO_LENGTH		32
@@ -69,11 +70,14 @@
 
 /* Entity Types */
 #define SLR_ET_UNSPECIFIED	0x0000
-#define SLR_ET_BOOT_PARAMS	0x0001
-#define SLR_ET_SETUP_DATA	0x0002
-#define SLR_ET_CMDLINE		0x0003
-#define SLR_ET_MEMMAP		0x0004
+#define SLR_ET_SLRT		0x0001
+#define SLR_ET_BOOT_PARAMS	0x0002
+#define SLR_ET_SETUP_DATA	0x0003
+#define SLR_ET_CMDLINE		0x0004
+#define SLR_ET_EFI_MEMMAP	0x0005
+#define SLR_ET_INITRD		0x0006
 #define SLR_ET_TXT_OS2MLE	0x0010
+#define SLR_ET_UNUSED		0xffff
 
 #ifndef __ASSEMBLY__
 
@@ -160,11 +164,8 @@ struct txt_mtrr_state {
  */
 struct slr_entry_intel_info {
 	struct slr_entry_hdr hdr;
-	u32 boot_params_addr;
 	u64 saved_misc_enable_msr;
 	struct txt_mtrr_state saved_bsp_mtrrs;
-	u32 ap_wake_block;
-	u32 ap_wake_block_size;
 } __packed;
 
 /*

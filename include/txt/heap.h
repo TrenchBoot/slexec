@@ -256,22 +256,20 @@ typedef struct __packed {
 
 /*
  * OS/loader to MLE structure
- *   - private to tboot (so can be any format we need)
+ *   - private to Secure Launch (so can be any format we need)
  */
-#define OS_MLE_STRUCT_VERSION    1
+#define OS_MLE_STRUCT_VERSION    2
 #define MAX_EVENT_LOG_SIZE       (5*4*1024)   /* 4k*5 */
 
 typedef struct __packed {
-    uint32_t     version;
-    uint32_t     zero_page_addr;
-    uint64_t     saved_misc_enable_msr; /* saved prior to SENTER */
-    mtrr_state_t saved_mtrr_state;      /* saved prior to changes for SINIT */
-    uint32_t     ap_wake_block;
-    uint32_t     ap_wake_block_size;
-    uint64_t     evtlog_addr;
-    uint32_t     evtlog_size;
-    uint8_t      mle_scratch[64];
-    uint8_t      event_log_buffer[MAX_EVENT_LOG_SIZE];
+    uint32_t version;
+    uint32_t boot_params_addr;
+    uint64_t slrt;
+    uint64_t txt_info;
+    uint32_t ap_wake_block;
+    uint32_t ap_wake_block_size;
+    uint8_t  mle_scratch[64];
+    uint8_t  event_log_buffer[MAX_EVENT_LOG_SIZE];
 } os_mle_data_t;
 
 #define MIN_OS_SINIT_DATA_VER    4

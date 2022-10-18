@@ -73,10 +73,15 @@
 				        SLEXEC_EVENT_LOG_SIZE)
 #define SLEXEC_E820_COPY_SIZE          0x02000
 
+/* address/size for SLR table */
+#define SLEXEC_SLR_TABLE_ADDR          (SLEXEC_E820_COPY_ADDR + \
+                                        SLEXEC_E820_COPY_SIZE)
+#define SLEXEC_SLR_TABLE_SIZE          0x1000
+
 /* Location for MLE page tables < 1M */
 /* 1 PDP + 1 PD + 18 PTs = 36M total */
-#define SLEXEC_MLEPT_ADDR              (SLEXEC_E820_COPY_ADDR + \
-                                        SLEXEC_E820_COPY_SIZE)
+#define SLEXEC_MLEPT_ADDR              (SLEXEC_SLR_TABLE_ADDR + \
+                                        SLEXEC_SLR_TABLE_SIZE)
 #define SLEXEC_MLEPT_PAGES             20
 #define SLEXEC_MLEPT_SIZE              (PAGE_SIZE*SLEXEC_MLEPT_PAGES)
 #define SLEXEC_MLEPT_PAGE_TABLES       (SLEXEC_MLEPT_PAGES - 2)

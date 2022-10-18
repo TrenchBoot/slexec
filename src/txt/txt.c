@@ -47,6 +47,7 @@
 #include <acpi.h>
 #include <linux.h>
 #include <tpm.h>
+#include <slr_table.h>
 #include <cmdline.h>
 #include <txt/smx.h>
 #include <txt/mle.h>
@@ -60,10 +61,17 @@ extern uint32_t g_min_ram;
 extern char _start[];             /* start of module */
 extern char _end[];               /* end of module */
 
-static uint32_t g_slaunch_header;
 static event_log_container_t *g_elog = NULL;
 static heap_event_log_ptr_elt2_1_t *g_elog_2_1 = NULL;
 static uint32_t g_using_da = 0;
+
+/* Area to collect and build SLR Table information */
+static uint8_t slr_policy_buf[256] = {0};
+static struct slr_entry_dl_info g_slr_entry_dl_info = {0};
+static struct slr_entry_log_info g_slr_entry_log_info = {0};
+static struct slr_entry_policy *g_slr_entry_policy =
+    (struct slr_entry_policy *)slr_policy_buf;
+static struct slr_entry_intel_info g_slr_entry_intel_info = {0};
 
 static void print_file_info(void)
 {
@@ -352,6 +360,130 @@ static void set_vtd_pmrs(os_sinit_data_t *os_sinit_data,
     os_sinit_data->vtd_pmr_hi_size = hi_size;
 }
 
+static void init_slrt_storage(void)
+{
+    g_slr_entry_dl_info.hdr.tag = SLR_ENTRY_DL_INFO;
+    g_slr_entry_dl_info.hdr.size = sizeof(struct slr_entry_dl_info);
+
+    g_slr_entry_log_info.hdr.tag = SLR_ENTRY_LOG_INFO;
+    g_slr_entry_log_info.hdr.size = sizeof(struct slr_entry_log_info);
+
+    g_slr_entry_policy->hdr.tag = SLR_ENTRY_ENTRY_POLICY;
+    g_slr_entry_policy->hdr.size = sizeof(struct slr_entry_policy) +
+                                   7*sizeof(struct slr_policy_entry);
+
+    g_slr_entry_intel_info.hdr.tag = SLR_ENTRY_INTEL_INFO;
+    g_slr_entry_intel_info.hdr.size = sizeof(struct slr_entry_intel_info);
+}
+
+static void setup_slrt_policy(os_mle_data_t *os_mle_data)
+{
+    struct slr_policy_entry *entry =
+        (struct slr_policy_entry *)((uint8_t *)g_slr_entry_policy +
+                                     sizeof(struct slr_entry_policy));
+    boot_params_t *boot_params = g_sl_kernel_setup.boot_params;
+    struct efi_info *efi =
+        (struct efi_info *)(boot_params->efi_info);
+
+    /* the SLR table should be measured too, at least parts of it */
+    entry->pcr = 18;
+    entry->entity_type = SLR_ET_SLRT;
+    entry->entity = (uint32_t)SLEXEC_SLR_TABLE_ADDR;
+    entry->flags |= SLR_POLICY_IMPLICIT_SIZE;
+    sl_strcpy(&entry->evt_info[0], "Measured SLR Table");
+    printk(SLEXEC_DETA"Boot params addr: 0x%x\n", (uint32_t)entry->entity);
+    entry++;
+
+    /* boot params have everything needed to setup policy except OS2MLE data */
+    entry->pcr = 18;
+    entry->entity_type = SLR_ET_BOOT_PARAMS;
+    entry->entity = (uint32_t)boot_params;
+    entry->size = PAGE_SIZE;
+    sl_strcpy(&entry->evt_info[0], "Measured boot parameters");
+    printk(SLEXEC_DETA"Boot params addr: 0x%x\n", (uint32_t)entry->entity);
+    entry++;
+
+    if (boot_params->hdr.setup_data) {
+        entry->pcr = 18;
+        entry->entity_type = SLR_ET_SETUP_DATA;
+        entry->entity = (uint32_t)boot_params->hdr.setup_data;
+        entry->flags |= SLR_POLICY_IMPLICIT_SIZE;
+        sl_strcpy(&entry->evt_info[0], "Measured Kernel setup_data");
+        printk(SLEXEC_DETA"Setup Data addr: 0x%x\n", (uint32_t)entry->entity);
+    }
+    else {
+        entry->entity_type = SLR_ET_UNUSED;
+    }
+    entry++;
+
+    entry->pcr = 18;
+    entry->entity_type = SLR_ET_CMDLINE;
+    /* NOTE the cmdline ptr can have hi bits but for now assume alwasy < 32G */
+    entry->entity = (uint32_t)boot_params->hdr.cmd_line_ptr;
+    entry->size = (uint32_t)boot_params->hdr.cmdline_size;
+    sl_strcpy(&entry->evt_info[0], "Measured Kernel command line");
+    printk(SLEXEC_DETA"Command line addr: 0x%x\n", (uint32_t)entry->entity);
+    entry++;
+
+    if (!sl_memcmp(&efi->efi_ldr_sig, "EL64", sizeof(uint32_t))) {
+        uint64_t memmap_hi;
+
+        entry->pcr = 18;
+        entry->entity_type = SLR_ET_EFI_MEMMAP;
+        entry->entity = efi->efi_memmap;
+        memmap_hi =  efi->efi_memmap_hi;
+        entry->entity |= memmap_hi << 32;
+        entry->size = efi->efi_memmap_size;
+        sl_strcpy(&entry->evt_info[0], "Measured EFI memory map");
+        printk(SLEXEC_DETA"EFI memmap addr: 0x%x\n", (uint32_t)entry->entity);
+    }
+    else {
+        entry->entity_type = SLR_ET_UNUSED;
+    }
+    entry++;
+
+    if (boot_params->hdr.ramdisk_image) {
+        entry->pcr = 17;
+        entry->entity_type = SLR_ET_INITRD;
+        /* NOTE the initrd image and size can have hi bits but for now assume alwasy < 32G */
+        entry->entity = (uint32_t)boot_params->hdr.ramdisk_image;
+        entry->size = (uint32_t)boot_params->hdr.ramdisk_size;
+        sl_strcpy(&entry->evt_info[0], "Measured Kernel initrd");
+        printk(SLEXEC_DETA"initrd addr: 0x%x\n", (uint32_t)entry->entity);
+    }
+    else {
+        entry->entity_type = SLR_ET_UNUSED;
+    }
+    entry++;
+
+    entry->pcr = 18;
+    entry->entity_type = SLR_ET_TXT_OS2MLE;
+    entry->entity = (uint32_t)os_mle_data;
+    entry->size = sizeof(os_mle_data_t) - MAX_EVENT_LOG_SIZE;
+    sl_strcpy(&entry->evt_info[0], "Measured TXT OS-MLE data");
+    printk(SLEXEC_DETA"TXT OS-MLE addr: 0x%x\n", (uint32_t)entry->entity);
+    entry++;
+}
+
+static void setup_slr_table(void)
+{
+    struct slr_table *slrt = (struct slr_table *)SLEXEC_SLR_TABLE_ADDR;
+
+    slr_add_entry(slrt, (struct slr_entry_hdr *)&g_slr_entry_dl_info);
+    slr_add_entry(slrt, (struct slr_entry_hdr *)&g_slr_entry_log_info);
+    slr_add_entry(slrt, (struct slr_entry_hdr *)g_slr_entry_policy);
+    slr_add_entry(slrt, (struct slr_entry_hdr *)&g_slr_entry_intel_info);
+}
+
+static void set_txt_info_ptr(os_mle_data_t *os_mle_data)
+{
+    struct slr_table *slrt = (struct slr_table *)SLEXEC_SLR_TABLE_ADDR;
+    struct slr_entry_hdr *txt_info;
+
+    txt_info = slr_next_entry_by_tag(slrt, NULL, SLR_ENTRY_INTEL_INFO);
+    os_mle_data->txt_info = (uint32_t)txt_info;
+}
+
 /*
  * sets up TXT heap
  */
@@ -365,6 +497,8 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
     struct kernel_info *ki;
     uint32_t version;
     uint64_t min_lo_ram, max_lo_ram, min_hi_ram, max_hi_ram;
+    mtrr_state_t saved_mtrr_state = {0};
+
 
     txt_heap = get_txt_heap();
 
@@ -374,6 +508,8 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
     if ( !verify_bios_data(txt_heap) )
         return NULL;
 
+    init_slrt_storage();
+
     /*
      * OS/loader to MLE data
      */
@@ -381,25 +517,32 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
     size = (uint64_t *)((uint32_t)os_mle_data - sizeof(uint64_t));
     *size = sizeof(*os_mle_data) + sizeof(uint64_t);
     sl_memset(os_mle_data, 0, sizeof(*os_mle_data));
-    /* set the zero page addr here */
-    /* NOTE msb_key_hash is not currently used and the log is setup later */
-    os_mle_data = get_os_mle_data_start(txt_heap);
-    os_mle_data->zero_page_addr = (uint32_t)g_sl_kernel_setup.boot_params;
-    printk(SLEXEC_DETA"Zero page addr: 0x%x\n", os_mle_data->zero_page_addr);
     os_mle_data->version = OS_MLE_STRUCT_VERSION;
-    os_mle_data->saved_misc_enable_msr = rdmsr(MSR_IA32_MISC_ENABLE);
-    /* might as well save the MTRR state here where OS-MLE is setup */
-    save_mtrrs(&(os_mle_data->saved_mtrr_state));
+    os_mle_data->boot_params_addr = (uint32_t)g_sl_kernel_setup.boot_params;
+    os_mle_data->slrt = SLEXEC_SLR_TABLE_ADDR;
     /* provide AP wake code block area */
     sl_memset((void*)SLEXEC_AP_WAKE_BLOCK_ADDR, 0, SLEXEC_AP_WAKE_BLOCK_SIZE);
     os_mle_data->ap_wake_block = SLEXEC_AP_WAKE_BLOCK_ADDR;
     os_mle_data->ap_wake_block_size = SLEXEC_AP_WAKE_BLOCK_SIZE;
-    printk(SLEXEC_DETA"AP wake  addr: 0x%x size: 0x%x\n", (uint32_t)os_mle_data->ap_wake_block,
+    printk(SLEXEC_DETA"AP wake  addr: 0x%x size: 0x%x\n",
+           (uint32_t)os_mle_data->ap_wake_block,
            (uint32_t)os_mle_data->ap_wake_block_size);
+
     /* event log and size */
-    os_mle_data->evtlog_addr = (uint32_t)&os_mle_data->event_log_buffer;
-    os_mle_data->evtlog_size = MAX_EVENT_LOG_SIZE;
-    printk(SLEXEC_DETA"Event log addr: 0x%x\n", (uint32_t)os_mle_data->evtlog_addr);
+    g_slr_entry_log_info.addr = (uint32_t)&os_mle_data->event_log_buffer;
+    g_slr_entry_log_info.size = MAX_EVENT_LOG_SIZE;
+    g_slr_entry_log_info.format = (get_evtlog_type() == EVTLOG_TPM2_TCG) ?
+                                   SLR_DRTM_TPM20_LOG : SLR_DRTM_TPM12_LOG;
+    printk(SLEXEC_DETA"Event log addr: 0x%x\n", (uint32_t)g_slr_entry_log_info.addr);
+
+    /* save the BSPs MTRR state so post launch can restore itt */
+    save_mtrrs(&saved_mtrr_state);
+
+    /* setup the TXT specific SLR information */
+    g_slr_entry_intel_info.saved_misc_enable_msr = rdmsr(MSR_IA32_MISC_ENABLE);
+    sl_memcpy(&(g_slr_entry_intel_info.saved_bsp_mtrrs), &saved_mtrr_state,
+              sizeof(mtrr_state_t));
+    setup_slrt_policy(os_mle_data);
 
     /*
      * OS/loader to SINIT data
@@ -415,8 +558,11 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
         version = MAX_OS_SINIT_DATA_VER;
 
     ki = (struct kernel_info*)(g_sl_kernel_setup.protected_mode_base +
-            g_sl_kernel_setup.boot_params->hdr.slaunch_header);
-    g_slaunch_header = ki->mle_header_offset;
+            g_sl_kernel_setup.boot_params->hdr.kernel_info_offset);
+    g_slr_entry_dl_info.dlme_entry = ki->mle_header_offset;
+
+    g_slr_entry_dl_info.dce_base = (uint32_t)g_sinit_module;
+    g_slr_entry_dl_info.dce_size = g_sinit_size;
 
     os_sinit_data_t *os_sinit_data = get_os_sinit_data_start(txt_heap);
     size = (uint64_t *)((uint32_t)os_sinit_data - sizeof(uint64_t));
@@ -424,7 +570,8 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
     sl_memset(os_sinit_data, 0, *size);
     os_sinit_data->version = version;
 
-    mle_size = (uint32_t*)(g_sl_kernel_setup.protected_mode_base + g_slaunch_header);
+    mle_size = (uint32_t*)(g_sl_kernel_setup.protected_mode_base +
+                           (uint32_t)g_slr_entry_dl_info.dlme_entry);
     /* this is phys addr */
     os_sinit_data->mle_ptab = (uint64_t)(unsigned long)ptab_base;
     if (*(mle_size + 9) != 0) {
@@ -437,7 +584,7 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
         os_sinit_data->mle_size = g_sl_kernel_setup.protected_mode_size;
 
     /* this is linear addr (offset from MLE base) of mle header */
-    os_sinit_data->mle_hdr_base = g_slaunch_header;
+    os_sinit_data->mle_hdr_base = g_slr_entry_dl_info.dlme_entry;
 
     /* VT-d PMRs */
     if ( !get_ram_ranges(&min_lo_ram, &max_lo_ram, &min_hi_ram, &max_hi_ram) )
@@ -528,6 +675,10 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
 
     print_os_sinit_data(os_sinit_data);
 
+    /* final setup of SLR table */
+    setup_slr_table();
+    set_txt_info_ptr(os_mle_data);
+
     /*
      * SINIT to MLE data will be setup by SINIT
      */
@@ -572,7 +723,8 @@ int txt_launch_environment(loader_ctx *lctx)
      * Need to update the MLE header with the size of the MLE. The field is
      * the 9th dword in.
      */
-    mle_size = (uint32_t*)(g_sl_kernel_setup.protected_mode_base + g_slaunch_header);
+    mle_size = (uint32_t*)(g_sl_kernel_setup.protected_mode_base +
+                           (uint32_t)g_slr_entry_dl_info.dlme_entry);
     if (*(mle_size + 9) == 0) {
         printk("Protected Mode Size: 0x%x MLE Reported Size: 0x%x\n",
               (uint32_t)g_sl_kernel_setup.protected_mode_size, *(mle_size + 9));

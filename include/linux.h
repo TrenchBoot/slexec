@@ -134,7 +134,7 @@ typedef struct __attribute__ ((packed)) {
     uint64_t pref_address;
     uint32_t init_size;
     uint32_t handover_offset;
-    uint32_t slaunch_header;
+    uint32_t kernel_info_offset;
 } linux_kernel_header_t;
 
 typedef struct __attribute__ ((packed)) {

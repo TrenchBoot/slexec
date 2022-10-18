@@ -50,6 +50,7 @@
 #include <e820.h>
 #include <linux.h>
 #include <tpm.h>
+#include <slr_table.h>
 #include <txt/mle.h>
 #include <txt/smx.h>
 #include <txt/txt.h>
@@ -306,6 +307,10 @@ void begin_launch(void *addr, uint32_t magic)
 
     if ( !platform_architecture() )
         error_action(SL_ERR_FATAL);
+
+    slr_init_table((struct slr_table *)SLEXEC_SLR_TABLE_ADDR,
+                   (g_architecture == SL_ARCH_TXT) ? SLR_INTEL_TXT : SLR_AMD_SKINIT,
+                   SLEXEC_SLR_TABLE_SIZE);
 
     /* we should only be executing on the BSP */
     g_apic_base = (uint32_t)rdmsr(MSR_IA32_APICBASE);

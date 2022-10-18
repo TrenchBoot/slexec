@@ -70,6 +70,11 @@ static __inline char *sl_strchr(const char *p, int ch)
     return sl_index(p, ch);
 }
 
+static __inline char *sl_strcpy(char *dest, const char *src)
+{
+    return sl_strncpy(dest, src, sl_strlen(src));
+}
+
 #endif /* __STRING_H__ */
 
 /*

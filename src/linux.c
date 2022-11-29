@@ -242,8 +242,8 @@ bool expand_linux_image(const void *linux_image, size_t linux_size,
     if ( have_loader_memlimits(g_ldr_ctx))
         real_mode_base =
             ((get_loader_mem_lower(g_ldr_ctx)) << 10) - REAL_MODE_SIZE;
-    if ( real_mode_base < SLEXEC_E820_COPY_ADDR + SLEXEC_E820_COPY_SIZE )
-        real_mode_base = SLEXEC_E820_COPY_ADDR + SLEXEC_E820_COPY_SIZE;
+    if ( real_mode_base < SLEXEC_MLEPT_ADDR + SLEXEC_MLEPT_SIZE )
+        real_mode_base = SLEXEC_MLEPT_ADDR + SLEXEC_MLEPT_SIZE;
     if ( real_mode_base > LEGACY_REAL_START )
         real_mode_base = LEGACY_REAL_START;
 

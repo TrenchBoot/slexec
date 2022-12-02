@@ -139,9 +139,10 @@ struct slr_entry_policy {
 struct slr_policy_entry {
 	u16 pcr;
 	u16 entity_type;
-	u64 entity;
-	u16 size;
 	u16 flags;
+	u16 reserved;
+	u64 entity;
+	u64 size;
 	char evt_info[TPM_EVENT_INFO_LENGTH];
 } __packed;
 
@@ -240,18 +241,10 @@ static inline int
 slr_add_entry(struct slr_table *table,
 	      struct slr_entry_hdr *entry)
 {
-	struct slr_entry_hdr *end;
-
 	if ((table->size + entry->size) > table->max_size)
 		return -1;
 
-	end = (struct slr_entry_hdr *)((u8 *)table + table->size
-		- sizeof(*end));
-	if (end->tag != SLR_ENTRY_END)
-		return -1; /* malformed table */
-
-	sl_memcpy((u8 *)end + entry->size, end, sizeof(*end));
-	sl_memcpy((u8 *)end, entry, entry->size);
+	sl_memcpy((u8 *)table + table->size, entry, entry->size);
 	table->size += entry->size;
 
 	return 0;

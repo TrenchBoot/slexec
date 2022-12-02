@@ -72,6 +72,7 @@ static struct slr_entry_log_info g_slr_entry_log_info = {0};
 static struct slr_entry_policy *g_slr_entry_policy =
     (struct slr_entry_policy *)slr_policy_buf;
 static struct slr_entry_intel_info g_slr_entry_intel_info = {0};
+struct slr_entry_hdr g_slr_end;
 
 static void print_file_info(void)
 {
@@ -374,6 +375,9 @@ static void init_slrt_storage(void)
 
     g_slr_entry_intel_info.hdr.tag = SLR_ENTRY_INTEL_INFO;
     g_slr_entry_intel_info.hdr.size = sizeof(struct slr_entry_intel_info);
+
+    g_slr_end.tag = SLR_ENTRY_END;
+    g_slr_end.size = sizeof(struct slr_entry_hdr);
 }
 
 static void setup_slrt_policy(os_mle_data_t *os_mle_data)
@@ -473,6 +477,7 @@ static void setup_slr_table(void)
     slr_add_entry(slrt, (struct slr_entry_hdr *)&g_slr_entry_log_info);
     slr_add_entry(slrt, (struct slr_entry_hdr *)g_slr_entry_policy);
     slr_add_entry(slrt, (struct slr_entry_hdr *)&g_slr_entry_intel_info);
+    slr_add_entry(slrt, &g_slr_end);
 }
 
 static void set_txt_info_ptr(os_mle_data_t *os_mle_data)
@@ -482,6 +487,7 @@ static void set_txt_info_ptr(os_mle_data_t *os_mle_data)
 
     txt_info = slr_next_entry_by_tag(slrt, NULL, SLR_ENTRY_INTEL_INFO);
     os_mle_data->txt_info = (uint32_t)txt_info;
+    printk(SLEXEC_DETA"TXT Info addr: 0x%x\n", (uint32_t)os_mle_data->txt_info);
 }
 
 /*

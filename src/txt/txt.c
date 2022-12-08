@@ -372,6 +372,8 @@ static void init_slrt_storage(void)
     g_slr_entry_policy->hdr.tag = SLR_ENTRY_ENTRY_POLICY;
     g_slr_entry_policy->hdr.size = sizeof(struct slr_entry_policy) +
                                    7*sizeof(struct slr_policy_entry);
+    g_slr_entry_policy->revision = 1;
+    g_slr_entry_policy->nr_entries = 7;
 
     g_slr_entry_intel_info.hdr.tag = SLR_ENTRY_INTEL_INFO;
     g_slr_entry_intel_info.hdr.size = sizeof(struct slr_entry_intel_info);

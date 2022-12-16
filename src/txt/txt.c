@@ -65,6 +65,8 @@ static event_log_container_t *g_elog = NULL;
 static heap_event_log_ptr_elt2_1_t *g_elog_2_1 = NULL;
 static uint32_t g_using_da = 0;
 
+static struct kernel_info *g_kernel_info;
+
 /* Area to collect and build SLR Table information */
 static uint8_t slr_policy_buf[256] = {0};
 static struct slr_entry_dl_info g_slr_entry_dl_info = {0};
@@ -499,10 +501,9 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
 {
     txt_heap_t *txt_heap;
     uint64_t *size;
-    uint32_t *mle_size;
+    uint32_t *mle_fields;
     struct tpm_if *tpm = get_tpm();
     os_mle_data_t *os_mle_data;
-    struct kernel_info *ki;
     uint32_t version;
     uint64_t min_lo_ram, max_lo_ram, min_hi_ram, max_hi_ram;
     mtrr_state_t saved_mtrr_state = {0};
@@ -565,10 +566,13 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
     if ( version > MAX_OS_SINIT_DATA_VER )
         version = MAX_OS_SINIT_DATA_VER;
 
-    ki = (struct kernel_info*)(g_sl_kernel_setup.protected_mode_base +
+    g_kernel_info = (struct kernel_info*)(g_sl_kernel_setup.protected_mode_base +
             g_sl_kernel_setup.boot_params->hdr.kernel_info_offset);
-    g_slr_entry_dl_info.dlme_entry = ki->mle_header_offset;
+    mle_fields = (uint32_t*)(g_sl_kernel_setup.protected_mode_base +
+                           (uint32_t)g_kernel_info->mle_header_offset);
 
+    g_slr_entry_dl_info.dlme_entry =
+        g_sl_kernel_setup.protected_mode_base + *(mle_fields + 6);
     g_slr_entry_dl_info.dce_base = (uint32_t)g_sinit_module;
     g_slr_entry_dl_info.dce_size = g_sinit_size;
 
@@ -578,21 +582,19 @@ static txt_heap_t *init_txt_heap(void *ptab_base, acm_hdr_t *sinit, loader_ctx *
     sl_memset(os_sinit_data, 0, *size);
     os_sinit_data->version = version;
 
-    mle_size = (uint32_t*)(g_sl_kernel_setup.protected_mode_base +
-                           (uint32_t)g_slr_entry_dl_info.dlme_entry);
     /* this is phys addr */
     os_sinit_data->mle_ptab = (uint64_t)(unsigned long)ptab_base;
-    if (*(mle_size + 9) != 0) {
+    if (*(mle_fields + 9) != 0) {
         printk("Protected Mode Size: 0x%x MLE Reported Size: 0x%x\n",
-              (uint32_t)g_sl_kernel_setup.protected_mode_size, *(mle_size + 9));
-        os_sinit_data->mle_size = *(mle_size + 9);
+              (uint32_t)g_sl_kernel_setup.protected_mode_size, *(mle_fields + 9));
+        os_sinit_data->mle_size = *(mle_fields + 9);
         printk("MLE size set to MLE header reported size: 0x%x\n",
                (uint32_t)os_sinit_data->mle_size);
     } else
         os_sinit_data->mle_size = g_sl_kernel_setup.protected_mode_size;
 
     /* this is linear addr (offset from MLE base) of mle header */
-    os_sinit_data->mle_hdr_base = g_slr_entry_dl_info.dlme_entry;
+    os_sinit_data->mle_hdr_base = g_kernel_info->mle_header_offset;
 
     /* VT-d PMRs */
     if ( !get_ram_ranges(&min_lo_ram, &max_lo_ram, &min_hi_ram, &max_hi_ram) )
@@ -698,7 +700,7 @@ int txt_launch_environment(loader_ctx *lctx)
 {
     void *mle_ptab_base;
     txt_heap_t *txt_heap;
-    uint32_t *mle_size;
+    uint32_t *mle_fields;
 
     /* print some debug info */
     print_file_info();
@@ -730,14 +732,15 @@ int txt_launch_environment(loader_ctx *lctx)
     /*
      * Need to update the MLE header with the size of the MLE. The field is
      * the 9th dword in.
+     * TODO note this is not needed with newer SL kernels.
      */
-    mle_size = (uint32_t*)(g_sl_kernel_setup.protected_mode_base +
-                           (uint32_t)g_slr_entry_dl_info.dlme_entry);
-    if (*(mle_size + 9) == 0) {
+    mle_fields = (uint32_t*)(g_sl_kernel_setup.protected_mode_base +
+                           (uint32_t)g_kernel_info->mle_header_offset);
+    if (*(mle_fields + 9) == 0) {
         printk("Protected Mode Size: 0x%x MLE Reported Size: 0x%x\n",
-              (uint32_t)g_sl_kernel_setup.protected_mode_size, *(mle_size + 9));
+              (uint32_t)g_sl_kernel_setup.protected_mode_size, *(mle_fields + 9));
         printk("Setting MLE size\n");
-        *(mle_size + 9) = g_sl_kernel_setup.protected_mode_size;
+        *(mle_fields + 9) = g_sl_kernel_setup.protected_mode_size;
     }
 
     printk(SLEXEC_INFO"executing GETSEC[SENTER]...\n");
